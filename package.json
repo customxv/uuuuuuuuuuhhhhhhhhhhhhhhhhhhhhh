@@ -1,18 +1,13 @@
 {
-  "name": "tfw-discord-bot",
+  "name": "the-footballing-world-bot",
   "version": "1.0.0",
-  "description": "A Discord bot with role-based permissions for moderation and admin commands",
+  "description": "Discord bot for The Footballing World server",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "discord.js": "^14.14.1",
-    "dotenv": "^16.3.1"
-  },
-  "engines": {
-    "node": ">=16.9.0"
-  },
-  "author": "",
-  "license": "ISC"
+    "dotenv": "^16.4.5"
+  }
 }
