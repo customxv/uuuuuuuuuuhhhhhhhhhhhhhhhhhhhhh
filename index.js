@@ -51,6 +51,7 @@ let config = {
 };
 let xpCooldowns = new Map();
 let activeTrivia = new Map();
+let triviaStats = {}; // { userId: { correct: number, total: number } }
 
 // Utility functions
 function hasMod(member) {
@@ -257,6 +258,17 @@ const commands = [
     .setName('answer')
     .setDescription('Answer the active trivia question')
     .addStringOption(o => o.setName('answer').setDescription('Your answer').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('help')
+    .setDescription('Get help with bot commands'),
+  new SlashCommandBuilder()
+    .setName('stats')
+    .setDescription('View your XP and trivia stats'),
+  new SlashCommandBuilder()
+    .setName('poll')
+    .setDescription('Create a poll')
+    .addStringOption(o => o.setName('question').setDescription('Poll question').setRequired(true))
+    .addStringOption(o => o.setName('options').setDescription('Options separated by commas').setRequired(true)),
 ];
 
 // Register commands
@@ -551,14 +563,62 @@ client.on('interactionCreate', async (interaction) => {
           if (userAnswer.includes(trivia.answer) || trivia.answer.includes(userAnswer)) {
             clearTimeout(trivia.timeout);
             activeTrivia.delete(channel.id);
+            if (!triviaStats[user.id]) triviaStats[user.id] = { correct: 0, total: 0 };
+            triviaStats[user.id].correct++;
+            triviaStats[user.id].total++;
             await interaction.reply({ embeds: [new EmbedBuilder().setColor('#2ecc71').setTitle('✅ Correct!')
               .setDescription(`**${interaction.user.username}** got it! The answer was **${trivia.display}** 🏆`)] });
             return;
           } else {
+            if (!triviaStats[user.id]) triviaStats[user.id] = { correct: 0, total: 0 };
+            triviaStats[user.id].total++;
             result = '❌ Wrong answer, keep trying!';
           }
         }
         break;
+      case 'help':
+        const helpEmbed = new EmbedBuilder()
+          .setTitle('🤖 Bot Commands')
+          .setColor('#3498db')
+          .addFields(
+            { name: 'Moderation', value: '/purge, /slowmode, /lock, /unlock, /mute, /unmute, /timeout, /untimeout, /kick, /ban, /unban, /warn, /warnings, /clearwarnings, /clearreactions', inline: false },
+            { name: 'Admin', value: '/setlogs, /setwelcome, /setlevelchannel, /setxp, /resetxp, /blacklistxp, /whitelistxp, /forcerole', inline: false },
+            { name: 'User', value: '/level, /rank, /leaderboard, /ping, /serverinfo, /userinfo', inline: false },
+            { name: 'Football', value: '/scores, /standings, /player, /trivia, /answer', inline: false },
+            { name: 'Other', value: '/help, /stats, /poll', inline: false }
+          );
+        await interaction.reply({ embeds: [helpEmbed] });
+        return;
+      case 'stats':
+        const userStats = triviaStats[user.id] || { correct: 0, total: 0 };
+        const userXP = xpData[user.id] || 0;
+        const userLevel = Math.floor(userXP / 100);
+        const statsEmbed = new EmbedBuilder()
+          .setTitle(`📊 ${user.username}'s Stats`)
+          .setColor('#9b59b6')
+          .addFields(
+            { name: 'Level', value: `${userLevel}`, inline: true },
+            { name: 'XP', value: `${userXP}`, inline: true },
+            { name: 'Trivia Correct', value: `${userStats.correct}`, inline: true },
+            { name: 'Trivia Total', value: `${userStats.total}`, inline: true },
+            { name: 'Trivia Accuracy', value: userStats.total > 0 ? `${Math.round((userStats.correct / userStats.total) * 100)}%` : 'N/A', inline: true }
+          );
+        await interaction.reply({ embeds: [statsEmbed] });
+        return;
+      case 'poll':
+        const question = interaction.options.getString('question');
+        const options = interaction.options.getString('options').split(',').map(o => o.trim()).slice(0, 10);
+        const pollEmbed = new EmbedBuilder()
+          .setTitle('📊 Poll')
+          .setDescription(question)
+          .setColor('#e67e22')
+          .addFields({ name: 'Options', value: options.map((o, i) => `${i + 1}. ${o}`).join('\n') })
+          .setFooter({ text: 'React with the number to vote!' });
+        const pollMessage = await interaction.reply({ embeds: [pollEmbed], fetchReply: true });
+        for (let i = 0; i < options.length; i++) {
+          await pollMessage.react(`${i + 1}️⃣`);
+        }
+        return;
     }
 
     await interaction.editReply({ content: result });
@@ -578,6 +638,27 @@ client.on('messageCreate', async (message) => {
   const userId = message.author.id;
   const channelId = message.channel.id;
   const guild = message.guild;
+
+  // Check for trivia answer
+  const trivia = activeTrivia.get(channelId);
+  if (trivia) {
+    const userAnswer = message.content.toLowerCase().trim();
+    if (userAnswer.includes(trivia.answer) || trivia.answer.includes(userAnswer)) {
+      clearTimeout(trivia.timeout);
+      activeTrivia.delete(channelId);
+      if (!triviaStats[userId]) triviaStats[userId] = { correct: 0, total: 0 };
+      triviaStats[userId].correct++;
+      triviaStats[userId].total++;
+      await message.reply({ embeds: [new EmbedBuilder().setColor('#2ecc71').setTitle('✅ Correct!')
+        .setDescription(`**${message.author.username}** got it! The answer was **${trivia.display}** 🏆`)] });
+      return;
+    } else {
+      // Wrong answer, increment total
+      if (!triviaStats[userId]) triviaStats[userId] = { correct: 0, total: 0 };
+      triviaStats[userId].total++;
+      // Don't reply to wrong answers to avoid spam
+    }
+  }
 
   // Check XP channel restrictions
   if (config.xpWhitelist.size > 0) {
